@@ -233,7 +233,7 @@ h3{font-size:19px}
 .modal{position:fixed;inset:0;z-index:60;background:var(--scrim);display:grid;place-items:center;padding:16px}
 .dialog{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(820px,100%);max-height:min(86vh,900px);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden}
 .dialog.small{width:min(440px,100%)}
-.dlg-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.dlg-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
 .dlg-body{overflow:auto;padding:16px 18px;display:grid;gap:14px;align-content:start}
 .dlg-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
 .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:12px}
@@ -300,6 +300,7 @@ h3{font-size:19px}
     <button class="btn hide-mobile" id="btnJson">Sauvegarde .json</button>
     <button class="btn primary" id="btnPdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>Fiche PDF</button>
     <input type="file" id="fileIn" accept=".json,application/json" hidden>
+    <input type="file" id="libIn" accept=".json,application/json" hidden>
   </header>
   <div class="shell">
     <aside class="side" id="side">
@@ -1195,10 +1196,26 @@ function openNewSession(){
     closeModal();S.cur=ns;touch();renderPlan();closeSide();$('#main').scrollTop=0;toast(i>=0?'Séance créée à partir du modèle.':'Nouvelle séance créée.')};
 }
 const LIB={cat:'all',theme:'all'};
+function exportLibrary(){
+  const exercises=[...S.exercises.values()].map(x=>({...clone(x),kind:'exercise'}));
+  if(!exercises.length){toast('Ta bibliothèque est vide : enregistre d’abord des exercices avec l’icône signet.');return}
+  saveFile(`coach-pro-bibliotheque-${todayISO()}.json`,JSON.stringify({app:'coach-pro-studio',version:1,type:'library',exportedAt:new Date().toISOString(),sessions:[],exercises}));
+}
+$('#libIn').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  let d;try{d=JSON.parse(await f.text())}catch{toast('Ce fichier n’est pas une bibliothèque Coach Pro Studio valide.');return}
+  const src=Array.isArray(d)?d:(d&&Array.isArray(d.exercises)?d.exercises:[]);
+  const list=src.filter(x=>x&&x.board&&x.name).map(x=>{const c=normalize({blocks:[{...clone(x)}]}).blocks[0];c.kind='exercise';if(!c.id)c.id=nid('x');if(!c.savedAt)c.savedAt=Date.now();return c});
+  if(!list.length){toast('Ce fichier ne contient aucun exercice de bibliothèque.');return}
+  list.forEach(x=>S.exercises.set(x.id,x));
+  try{if(S.store.mode==='idb')await IDB.putMany(list);else lsWrite();}catch{toast('Import incomplet : enregistrement impossible pour le moment.');return}
+  toast(`${list.length} exercice${list.length>1?'s':''} importé${list.length>1?'s':''} dans ta bibliothèque.`);
+  if(!$('#modal').hidden)openLibrary();
+};
 function openLibrary(){
   const presets=presetLibrary(),mine=[...S.exercises.values()].sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
   const themes=[...new Set(presets.concat(mine).map(x=>x.theme).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
-  const m=openModal(`<div class="dlg-head"><h3>Exemples & bibliothèque</h3><span class="spacer"></span><button class="btn ghost" data-close>Fermer</button></div>
+  const m=openModal(`<div class="dlg-head"><h3>Exemples & bibliothèque</h3><span class="spacer"></span><button class="btn" data-libexp>Exporter ma bibliothèque</button><button class="btn" data-libimp>Importer</button><button class="btn ghost" data-close>Fermer</button></div>
    <div class="dlg-body" id="libBody"></div><div class="dlg-foot"><span class="muted" style="font-size:13px">L’exercice est copié dans ta séance : tu peux tout modifier sans toucher au modèle.</span></div>`);
   m.querySelector('.dialog').style.width='min(1000px,100%)';
   const body=$('#libBody',m);
@@ -1218,6 +1235,8 @@ function openLibrary(){
   }
   render();
   m.onclick=e=>{
+    if(e.target.closest('[data-libexp]')){exportLibrary();return}
+    if(e.target.closest('[data-libimp]')){$('#libIn').click();return}
     const c=e.target.closest('[data-cat]');if(c){LIB.cat=c.dataset.cat;render();return}
     const a=e.target.closest('[data-add]');
     if(a){const [src,i]=a.dataset.add.split(':');const x=clone((src==='mine'?mine:presets)[+i]);normalize({blocks:[x]});delete x.kind;delete x.savedAt;x.id=nid('b');S.cur.blocks.push(x);closeModal();touch();renderBlocks();updateDerived();toast('Exercice ajouté à la séance.');$('#blocks').lastElementChild?.scrollIntoView({behavior:'smooth',block:'center'});return}
